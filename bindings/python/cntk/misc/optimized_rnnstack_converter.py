@@ -148,22 +148,31 @@ def _convert_optimized_rnnstack(root_func, map_param_to_func):
     for block in blocks:
         block_root = C.as_composite(block.block_root)
         new_block_root = _convert_optimized_rnnstack(block_root, map_param_to_func)
-        if new_block_root:
+        if new_block_root != block_root:
             block_arguments_mapping = dict(block.block_arguments_mapping)
             new_block_arguments_mapping = []
             for arg, new_arg in zip(block_root.arguments, new_block_root.arguments):
                 new_block_arguments_mapping += [(new_arg, block_arguments_mapping[arg])]
             new_block = C.as_block(new_block_root, new_block_arguments_mapping, block.op_name, block.name)
-            root_func = root_func.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
+            #import pdb; pdb.set_trace()
+            if all([x not in root_func.outputs for x in block.outputs]) or len(root_func.outputs) == len(block.outputs):
+                root_func = root_func.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
+            else:
+                new_outputs = [new_block.outputs[block.outputs.index(x)] if x in block.outputs else None for x in root_func.outputs]
+                root_func_nonreplaced = C.combine([x for x in root_func.outputs if x not in block.outputs])
+                root_func_nonreplaced_clone = root_func_nonreplaced.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
+                idx = 0
+                for nonreplaced_output in root_func_nonreplaced_clone.outputs:
+                    while new_outputs[idx]:
+                        idx += 1
+                    new_outputs[idx] = nonreplaced_output
+                root_func = C.combine(new_outputs)
 
     # replace all optimized_rnnstack instances in root_func
     cudnn_rnns = C.logging.graph.depth_first_search(root_func, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth = 0)
-    if len(cudnn_rnns) == 0:
-        return None
-
     for cudnn_rnn in cudnn_rnns:
         param = cudnn_rnn.parameters[0]
-        if param in map_param_to_func.keys():
+        if map_param_to_func[param]:
             #shared parameter, clone
             converted = map_param_to_func[param][0].clone(C.CloneMethod.share, {map_param_to_func[param][1] : cudnn_rnn.inputs[0], map_param_to_func[param][2] : C.placeholder()})
         else:
