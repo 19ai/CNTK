@@ -10,11 +10,6 @@ import time
 from cntk import cntk_py
 
 
-def _warn_deprecated(message):
-    from warnings import warn
-    warn('DEPRECATED: ' + message, DeprecationWarning, stacklevel=2)
-
-
 def _avg(numerator, denominator):
     if isinstance(numerator, tuple):
         numerator = numerator[1] - numerator[0]
@@ -141,75 +136,6 @@ class ProgressPrinter(cntk_py.ProgressWriter):
         '''
         self.___logprint(message)
 
-    def avg_loss_since_start(self):
-        '''
-        DEPRECATED.
-
-        Returns: the average loss since the start of accumulation
-        '''
-        _warn_deprecated('The method was deprecated.')
-        return _avg(self.loss_since_start, self.samples_since_start)
-
-    def avg_metric_since_start(self):
-        '''
-        DEPRECATED.
-
-        Returns: the average metric since the start of accumulation
-        '''
-        _warn_deprecated('The method was deprecated.')
-        return _avg(self.metric_since_start, self.samples_since_start)
-
-    def avg_loss_since_last(self):
-        '''
-        DEPRECATED.
-
-        Returns: the average loss since the last print
-        '''
-        _warn_deprecated('The method was deprecated.')
-        return _avg(self.loss_since_last, self.samples_since_last)
-
-    def avg_metric_since_last(self):
-        '''
-        DEPRECATED.
-
-        Returns: the average metric since the last print
-        '''
-        _warn_deprecated('The method was deprecated.')
-        return _avg(self.metric_since_last, self.samples_since_last)
-
-    def reset_start(self):
-        '''
-        DEPRECATED.
-
-        Resets the 'start' accumulators
-
-        Returns: tuple of (average loss since start, average metric since start, samples since start)
-        '''
-        _warn_deprecated('The method was deprecated.')
-        ret = self.avg_loss_since_start(), self.avg_metric_since_start(), self.samples_since_start
-        self.loss_since_start = 0
-        self.metric_since_start = 0
-        self.samples_since_start = 0
-        self.updates_since_start = 0
-        return ret
-
-    def reset_last(self):
-        '''
-        DEPRECATED.
-
-        Resets the 'last' accumulators
-
-        Returns: tuple of (average loss since last, average metric since last, samples since last)
-        '''
-        if self.total_updates == 0:
-            # Only warn once to avoid flooding with warnings.
-            _warn_deprecated('The method was deprecated.')
-        ret = self.avg_loss_since_last(), self.avg_metric_since_last(), self.samples_since_last
-        self.loss_since_last = 0
-        self.metric_since_last = 0
-        self.samples_since_last = 0
-        return ret
-
     def write(self, key, value):
         # Override for ProgressWriter.write method.
         self.___logprint("{}: {}".format(key, value))
@@ -223,29 +149,6 @@ class ProgressPrinter(cntk_py.ProgressWriter):
             with open(self.logfilename, "a") as logfile:
                 logfile.write(logline + "\n")
 
-    def epoch_summary(self, with_metric=False):
-        '''
-        DEPRECATED.
-
-        If on an arithmetic schedule print an epoch summary using the 'start' accumulators.
-        If on a geometric schedule does nothing.
-
-        Args:
-            with_metric (`bool`): if `False` it only prints the loss, otherwise it prints both the loss and the metric
-        '''
-        _warn_deprecated('The method was deprecated.')
-        self.epochs += 1
-        epoch_end_time = time.time()
-        elapsed_milliseconds = (epoch_end_time - self.epoch_start_time) * 1000
-        self.epoch_start_time = epoch_end_time # resetting starttime for use in the next epoch
-
-        metric_since_start = self.metric_since_start if with_metric else None
-        self.on_write_training_summary(self.samples_since_start, self.updates_since_start, self.epochs,
-                                       self.loss_since_start, metric_since_start, elapsed_milliseconds)
-
-        if self.freq > 0:
-            return self.reset_start()
-
     def ___generate_progress_heartbeat(self):
         timer_delta = time.time() - self.progress_timer_time
 
@@ -254,80 +157,6 @@ class ProgressPrinter(cntk_py.ProgressWriter):
             # print to stdout
             print("PROGRESS: 0.00%")
             self.progress_timer_time = time.time()
-
-    def update(self, loss, minibatch_size, metric=None):
-        '''
-        DEPRECATED.
-
-        Updates the accumulators using the loss, the minibatch_size and the optional metric.
-
-        Args:
-            loss (`float`): the value with which to update the loss accumulators
-            minibatch_size (`int`): the value with which to update the samples accumulator
-            metric (`float` or `None`): if `None` do not update the metric
-             accumulators, otherwise update with the given value
-        '''
-        if self.total_updates == 0:
-            # Only warn once to avoid flooding with warnings.
-            _warn_deprecated('The method was deprecated.')
-
-        if minibatch_size == 0:
-            return
-
-        self.samples_since_start += minibatch_size
-        self.samples_since_last += minibatch_size
-        self.loss_since_start += loss * minibatch_size
-        self.loss_since_last += loss * minibatch_size
-        self.updates_since_start += 1
-        self.total_updates += 1
-
-        if metric is not None:
-            self.metric_since_start += metric * minibatch_size
-            self.metric_since_last += metric * minibatch_size
-
-        self.___generate_progress_heartbeat()
-
-        if ((self.freq == 0 and (self.updates_since_start + 1) & self.updates_since_start == 0) or
-            self.freq > 0 and (self.updates_since_start % self.freq == 0 or self.updates_since_start <= self.first)):
-
-            samples = (self.samples_since_start - self.samples_since_last, self.samples_since_start)
-            updates = None
-            if self.freq > 0:
-                if self.updates_since_start <= self.first:  # printing individual MBs
-                    first_update = self.updates_since_start
-                else:
-                    first_update = max(self.updates_since_start - self.freq, self.first)
-                updates = (first_update, self.updates_since_start)
-
-            aggregate_loss = (self.loss_since_start - self.loss_since_last, self.loss_since_start)
-            aggregate_metric = None
-            if metric is not None:
-                aggregate_metric = (self.metric_since_start - self.metric_since_last, self.metric_since_start)
-
-            self.on_write_training_update(samples, updates, aggregate_loss, aggregate_metric)
-            self.reset_last()
-
-    def update_with_trainer(self, trainer, with_metric=False):
-        '''
-        DEPRECATED.
-
-        Update the current loss, the minibatch size and optionally the metric using the information from the
-        ``trainer``.
-
-        Args:
-            trainer (:class:`cntk.train.trainer.Trainer`): trainer from which information is gathered
-            with_metric (`bool`): whether to update the metric accumulators
-        '''
-        if self.total_updates == 0:
-            # Only warn once to avoid flooding with warnings.
-            _warn_deprecated('Inefficient. '
-                             'Please pass an instance of ProgressPrinter to Trainer upon construction.')
-
-        if trainer is not None and trainer.previous_minibatch_sample_count != 0:
-            self.update(
-                trainer.previous_minibatch_loss_average,
-                trainer.previous_minibatch_sample_count,
-                trainer.previous_minibatch_evaluation_average if with_metric else None)
 
     def on_write_training_update(self, samples, updates, aggregate_loss, aggregate_metric):
         # Override for ProgressWriter.on_write_training_update.
