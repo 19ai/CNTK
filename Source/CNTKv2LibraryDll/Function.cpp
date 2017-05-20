@@ -817,36 +817,66 @@ namespace CNTK
         // Handle the scenario when the root Function outputs themselves are specified to be replaced. 
         auto compositeRootFunctionOutputs = compositeRootFunction->RawOutputs();
         std::vector<Variable> rootFunctionOutputReplacements;
-        std::vector<Variable> compositeRootFunctionOutputsReplaced;
+        std::vector<Variable> outputsNotReplaced;
         for (auto output : compositeRootFunctionOutputs)
         {
             if (replacements.find(output) != replacements.end())
             {
-                const auto& replacement = replacements.at(output);
-                rootFunctionOutputReplacements.push_back(replacement);
-                compositeRootFunctionOutputsReplaced.push_back(replacement);
+                rootFunctionOutputReplacements.push_back(replacements.at(output));
             }
             else
-                compositeRootFunctionOutputsReplaced.push_back(output);
+            {
+                outputsNotReplaced.push_back(output);
+            }
         }
 
         if (!rootFunctionOutputReplacements.empty())
         {
-            if (rootFunctionOutputReplacements.size() != compositeRootFunctionOutputs.size())
-                return Combine(compositeRootFunctionOutputsReplaced);
+            if (rootFunctionOutputReplacements.size() == compositeRootFunctionOutputs.size())
+            {
+                // all outputs are replaced
+                if (rootFunctionOutputReplacements.size() == 1)
+                    return rootFunctionOutputReplacements[0];
+                else
+                {
+                    std::unordered_set<FunctionPtr> owners;
+                    for (auto replacementOutput : rootFunctionOutputReplacements)
+                        owners.insert(replacementOutput.Owner());
 
-            if (rootFunctionOutputReplacements.size() == 1)
-                return rootFunctionOutputReplacements[0];
+                    if ((owners.size() == 1) && *owners.begin())
+                        return AsComposite(*owners.begin());
+                    else
+                        return Combine(rootFunctionOutputReplacements);
+                }
+            }
             else
             {
-                std::unordered_set<FunctionPtr> owners;
-                for (auto replacementOutput : rootFunctionOutputReplacements)
-                    owners.insert(replacementOutput.Owner());
+                // outputs are partial replaced, clone a combine of non-replaced outputs
+                // and then combined with the replaced ones
 
-                if ((owners.size() == 1) && *owners.begin())
-                    return AsComposite(*owners.begin());
-                else
-                    return Combine(rootFunctionOutputReplacements);
+                FunctionPtr compositeRootFunctionSubtracted = Combine(outputsNotReplaced);
+                std::unordered_map<const Function*, FunctionPtr> cloneMap;
+                std::unordered_map<Variable, Variable> leafVariablesCloneMap;
+                std::unordered_map<Variable, Variable> placeholderReplacements;
+                auto clonedRootFunctionSubtracted = Function::Clone(compositeRootFunctionSubtracted, parameterCloneMethod, replacements, cloneMap, leafVariablesCloneMap, placeholderReplacements);
+
+                std::vector<Variable> mergedOutputs;
+                auto clonedRootFunctionSubtractedOutputs = clonedRootFunctionSubtracted->Outputs();
+                auto notReplacedIter = clonedRootFunctionSubtractedOutputs.begin();
+                for (auto output : compositeRootFunctionOutputs)
+                {
+                    if (replacements.find(output) != replacements.end())
+                    {
+                        mergedOutputs.push_back(replacements.at(output));
+                    }
+                    else
+                    {
+                        // note the output var order is kept
+                        mergedOutputs.push_back(*notReplacedIter);
+                        notReplacedIter++;
+                    }
+                }
+                return Combine(mergedOutputs);
             }
         }
 

@@ -133,18 +133,18 @@ def _from_optimized_rnnstack(cudnn_rnn):
 
     return noncudnn_func
     
-def _convert_optimized_rnnstack(graph, map_param_to_func):
+def _convert_optimized_rnnstack(root_func, map_param_to_func):
     '''
-    Internal implementation that converts graph that contains cudnn optimized_rnnstack to use non-cudnn functions, so it can be used in non-CUDA environment
+    Internal implementation that converts root_func that contains cudnn optimized_rnnstack to use non-cudnn functions, so it can be used in non-CUDA environment
 
     Args:
-        graph: a graph that contains optimized_rnnstacks
+        root_func: a root function of a graph that contains optimized_rnnstacks
         map_param_to_func: a mapping of converted rnn functions for parameter sharing
     Returns:
-        converted graph on GEMM based implementation of rnn that can be used on CPU
+        converted root_func on GEMM based implementation of rnn that can be used on CPU
     '''
-    # recursively convert for blocks in graph
-    blocks = C.logging.graph.depth_first_search(graph, lambda x : type(x) == C.Function and x.root_function.is_block, depth = 0)
+    # recursively convert for blocks in root_func
+    blocks = C.logging.graph.depth_first_search(root_func, lambda x : type(x) == C.Function and x.root_function.is_block, depth = 0)
     for block in blocks:
         block_root = C.as_composite(block.block_root)
         new_block_root = _convert_optimized_rnnstack(block_root, map_param_to_func)
@@ -154,16 +154,16 @@ def _convert_optimized_rnnstack(graph, map_param_to_func):
             for arg, new_arg in zip(block_root.arguments, new_block_root.arguments):
                 new_block_arguments_mapping += [(new_arg, block_arguments_mapping[arg])]
             new_block = C.as_block(new_block_root, new_block_arguments_mapping, block.op_name, block.name)
-            graph = graph.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
+            root_func = root_func.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
 
-    # replace all RNNs in graph
-    cudnn_rnns = C.logging.graph.depth_first_search(graph, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth = 0)
+    # replace all optimized_rnnstack instances in root_func
+    cudnn_rnns = C.logging.graph.depth_first_search(root_func, lambda x : type(x) == C.Function and x.root_function.op_name == 'OptimizedRNNStack', depth = 0)
     if len(cudnn_rnns) == 0:
         return None
 
     for cudnn_rnn in cudnn_rnns:
         param = cudnn_rnn.parameters[0]
-        if map_param_to_func[param]:
+        if param in map_param_to_func.keys():
             #shared parameter, clone
             converted = map_param_to_func[param][0].clone(C.CloneMethod.share, {map_param_to_func[param][1] : cudnn_rnn.inputs[0], map_param_to_func[param][2] : C.placeholder()})
         else:
@@ -171,16 +171,16 @@ def _convert_optimized_rnnstack(graph, map_param_to_func):
             converted = _from_optimized_rnnstack(cudnn_rnn)
             map_param_to_func[param] = (converted, cudnn_rnn.inputs[0], cudnn_rnn.output,)
 
-        if not cudnn_rnn.output in graph.outputs:            
-            graph = graph.clone(C.CloneMethod.share, {cudnn_rnn.output : converted.output})
+        if not cudnn_rnn.output in root_func.outputs:            
+            root_func = root_func.clone(C.CloneMethod.share, {cudnn_rnn.output : converted.output})
         else:
-            # if cudnn_rnn output is the graph output, just use converted as graph and no clone needed
-            if len(graph.outputs) > 1:
-                graph = C.combine([converted if x == cudnn_rnn.output else x for x in graph.outputs])
+            # if cudnn_rnn output is the root_func output, just use converted as root_func and no clone needed
+            if len(root_func.outputs) > 1:
+                root_func = C.combine([converted if x == cudnn_rnn.output else x for x in root_func.outputs])
             else:
-                graph = converted
+                root_func = converted
 
-    return graph
+    return root_func
 
 def convert_optimized_rnnstack(cudnn_model):
     '''

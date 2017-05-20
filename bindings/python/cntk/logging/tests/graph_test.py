@@ -175,13 +175,10 @@ def test_depth_first_search_blocks(depth, prefix_count):
     from cntk.default_options import default_options
     
     def Blocked_Dense(dim, activation=None):
+        dense = Dense(dim, activation=activation)
+        @C.layers.BlockFunction('blocked_dense', 'blocked_dense')
         def func(x):
-            ph = C.placeholder()
-            return C.as_block(
-                Dense(dim, activation=activation)(ph),
-                [(ph, x)],
-                'blocked_dense',
-                'blocked_dense')
+            return dense(x)
         return func
 
     with default_options(activation=C.relu):
