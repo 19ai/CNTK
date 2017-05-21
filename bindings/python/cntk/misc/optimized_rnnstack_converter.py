@@ -145,7 +145,10 @@ def _convert_optimized_rnnstack(root_func, map_param_to_func):
     '''
     # recursively convert for blocks in root_func
     blocks = C.logging.graph.depth_first_search(root_func, lambda x : type(x) == C.Function and x.root_function.is_block, depth = 0)
-    for block in blocks:
+    for i in range(len(blocks)):
+        # search for blocks again in case block input/output has been modified
+        blocks1 = C.logging.graph.depth_first_search(root_func, lambda x : type(x) == C.Function and x.root_function.is_block, depth = 0)
+        block = blocks1[i] # assuming depth_first_search order to be stable, so use the old index on new search results
         block_root = C.as_composite(block.block_root)
         new_block_root = _convert_optimized_rnnstack(block_root, map_param_to_func)
         if new_block_root != block_root:
@@ -154,8 +157,7 @@ def _convert_optimized_rnnstack(root_func, map_param_to_func):
             for arg, new_arg in zip(block_root.arguments, new_block_root.arguments):
                 new_block_arguments_mapping += [(new_arg, block_arguments_mapping[arg])]
             new_block = C.as_block(new_block_root, new_block_arguments_mapping, block.op_name, block.name)
-            #import pdb; pdb.set_trace()
-            if all([x not in root_func.outputs for x in block.outputs]) or len(root_func.outputs) == len(block.outputs):
+            if all([x not in root_func.outputs for x in block.outputs]) or all([x in block.outputs for x in root_func.outputs]):
                 root_func = root_func.clone(C.CloneMethod.share, dict(zip(block.outputs, new_block.outputs)))
             else:
                 new_outputs = [new_block.outputs[block.outputs.index(x)] if x in block.outputs else None for x in root_func.outputs]
