@@ -16,9 +16,10 @@ echo Building java.
 
 if not exist "%project_dir%com\microsoft\CNTK\lib\windows" mkdir "%project_dir%com\microsoft\CNTK\lib\windows"
 
-for %%x in (Cntk.Core-%version%.dll Cntk.Core.JavaBinding-%version%.dll Cntk.Math-%version%.dll Cntk.PerformanceProfiler-%version%.dll libiomp5md.dll mkl_cntk_p.dll) do (
+for %%x in (libiomp5md.dll mkl_cntk_p.dll Cntk.Math-%version%.dll Cntk.PerformanceProfiler-%version%.dll Cntk.Core-%version%.dll Cntk.Core.JavaBinding-%version%.dll) do (
   copy "%output_dir%/%%x" ".\com\microsoft\CNTK\lib\windows\%%x" 
   echo %%x>> .\com\microsoft\CNTK\lib\windows\NATIVE_MANIFEST
+  echo %%x>> .\com\microsoft\CNTK\lib\windows\NATIVE_LOAD_MANIFEST
 )
 
 copy .\CNTK.java .\com\microsoft\CNTK\CNTK.java

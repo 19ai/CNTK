@@ -1,5 +1,7 @@
 package com.microsoft.CNTK;
 
+import com.sun.org.apache.bcel.internal.util.ClassLoader;
+
 import java.io.*;
 import java.nio.file.Files;
 import java.util.ArrayList;
@@ -105,10 +107,15 @@ public class CNTKNativeUtils {
         extractionDone = true;
     }
 
+    private static String normalizePath(String path) {
+       return "/"+(path).replace("\\","/");
+    }
+
     private static String[] getResourceLines(String resourceName) throws IOException{
         // Read resource file if it exists
-        InputStream inStream = ClassLoader.getSystemClassLoader()
-                .getResourceAsStream(resourcesPath + manifestName);
+
+        String path = normalizePath(resourcesPath+resourceName);
+        InputStream inStream = CNTKNativeUtils.class.getResourceAsStream(path);
         if (inStream == null) {
             throw new FileNotFoundException("Could not find native resources in jar. " +
                     "Make sure the CNTK jar containing the native libraries was added to the classpath.");
@@ -161,8 +168,8 @@ public class CNTKNativeUtils {
             );
         }
 
-        String path = prefix + libName;
-        InputStream inStream = ClassLoader.getSystemClassLoader().getResourceAsStream(path);
+        String path = normalizePath(prefix + libName);
+        InputStream inStream = CNTKNativeUtils.class.getResourceAsStream(path);
         if (inStream == null) {
             throw new FileNotFoundException(String.format("Could not find resource %s in jar.", path));
         }
